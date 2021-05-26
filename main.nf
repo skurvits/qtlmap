@@ -42,6 +42,9 @@ def helpMessage() {
       --run_permutation             Calculate permuation p-values for each phenotype group (group_id in the phenotype metadata file) (default: false)
       --run_nominal                 Calculate nominal p-values for each phenotype group (group_id in the phenotype metadata file) (default: true)
       --n_permutations              Number of permutations to be performed per gene when run_permutation = true (default: 1000)
+      --run_nominal_trans
+      --run_permutation_trans
+
 
     QTL mapping:
       --cis_window                  The window where to search for associated variants around the phenotype (default: 1000000)
@@ -165,6 +168,8 @@ summary['Working dir']          = workflow.workDir
 summary['Output dir']           = params.outdir
 summary['Script dir']           = workflow.projectDir
 summary['Config Profile']       = workflow.profile
+summary['Trans Nominal run']    = params.run_nominal_trans
+summary['Trans Permutation']    = params.run_permutation_trans
 if(workflow.profile == 'awsbatch'){
    summary['AWS Region']        = params.awsregion
    summary['AWS Queue']         = params.awsqueue
@@ -182,6 +187,7 @@ include { run_permutation; merge_permutation_batches; run_nominal; merge_nominal
 include { join_rsids_var_info; reformat_sumstats; tabix_index} from './modules/reformat_sumstats'
 include { vcf_to_dosage } from './modules/vcf_to_dosage'
 include { run_susie; merge_susie; sort_susie; extract_cs_variants; merge_cs_sumstats } from './modules/susie'
+include { run_permutation_trans; merge_permutation_batches_trans; run_nominal_trans; merge_nominal_batches_trans } from './modules/trans_eQTL.nf'
 
 workflow {
 
@@ -202,12 +208,14 @@ workflow {
     //Permutation pass
     if( params.run_permutation ){
       run_permutation(batch_ch, qtlmap_input_ch)
+      //run_permutation_trans(batch_ch, qtlmap_input_ch)
       merge_permutation_batches( run_permutation.out.groupTuple(size: params.n_batches, sort: true) )
     }
     //Nominal pass
     if( params.run_nominal ){
       run_nominal(batch_ch, qtlmap_input_ch)
-      merge_nominal_batches( run_nominal.out.groupTuple(size: params.n_batches, sort: true) )
+      // run_permutation_trans( batch_ch, qtlmap_input_ch )
+       merge_nominal_batches( run_nominal.out.groupTuple(size: params.n_batches, sort: true) )
       sort_qtltools_output( merge_nominal_batches.out )
 
       //Reformat sumstats
@@ -225,6 +233,20 @@ workflow {
       }
     }
 
+    //Trans permutation pass
+    if( params.run_permutation_trans ){
+      run_permutation_trans(batch_ch, qtlmap_input_ch)
+      merge_permutation_batches_trans( run_permutation_trans.out.groupTuple(size: params.n_batches, sort: true) )
+    }
+
+    //Trans nominal pass
+    if( params.run_nominal_trans ){
+      run_nominal_trans(batch_ch, qtlmap_input_ch)
+      merge_nominal_batches_trans( run_nominal_trans.out.groupTuple(size: params.n_batches, sort: true) )
+    }
+
+
+
     //Run SuSiE
     if( params.run_permutation & params.run_susie ){
       vcf_to_dosage(extract_samples_from_vcf.out.vcf)
@@ -236,6 +258,8 @@ workflow {
       merge_susie( run_susie.out.groupTuple(size: params.n_batches, sort: true) )
       sort_susie( merge_susie.out )
     }
+
+   
 
     //Extract credible set variants from the full summary statistics
     if (params.run_nominal & params.run_permutation & params.run_susie){
